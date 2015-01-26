@@ -1,0 +1,921 @@
+#*******************************************
+# MacVersion = 0.2.8
+# MacDescription = Colorado/Oregon POI and GeoCache exporter
+# MacAuthor = Shebi
+# MacFileName = UberExport.gsk
+# MacUrl =
+#*******************************************
+
+# Please note that the following code is merely a disgusting compilation
+# of other Colorado/Oregon related macros +- some of my additions.
+# The source as a whole is more of a promise of the future work.
+# in case you're going to find issues or would like to suggest enhancements,
+# feel free to do so ;-)
+
+# Version check
+# VERCHECK Version=7.2.4.000 (please update GSAK to the latest version to run this macro - see http://gsak.net. It has not been tested with older versions.)
+SET $version_macro = "0.2.8"
+
+GOSUB Name=Declare
+
+# Will the macro keep you updated about the progress
+#DEBUG Status=on
+$Verbose = True
+
+####################
+
+$babelprogram = "gpsbabel.exe"
+$SettingsFile=$_Install+"\macros\UberExport.dat"
+$geofile = "poi"
+$maxlogs = 10
+
+# Set the waypoint name here for widescreen and smallscreen:
+Vsub status=off
+
+$waypointnamewidescreen = "%ShortName=31"
+
+vsub status=on
+
+####################
+#
+# Nothing needs to be edited beyond here. But feel free to do so.
+#
+####################
+
+# This is for newbies who can't add folders etc to their systems. Tested on Vista and XP only.
+$exportfoldertemp = Quote($_Install + "\poiloader")
+IF FolderExists($exportfolder)
+	ELSE
+	IF FolderExists($exportfoldertemp)
+	ELSE
+		RUNPGM pgm="cmd.exe" parms="/C mkdir $exportfoldertemp" Wait=Yes Hide=yes
+	ENDIF
+ENDIF
+
+# Check to see if there are saved settings from a previous run
+IF FileExists($SettingsFile)
+	$Settings = GetFile($SettingsFile)
+	IF Left($Settings,7) = "*Error*"
+		Pause Msg="$Settings"
+		CANCEL
+	ENDIF
+
+	$exportfolder=Extract($Settings,";",1)
+	$devicemodel=Extract($Settings,";",2)
+	$soundfile=Extract($Settings,";",3)
+	$switchhintandlogs=Extract($Settings,";",4)
+	$version_macro_file=EXTRACT($Settings, ";", 5)
+	$poiloaderprogram=EXTRACT($Settings, ";", 6)
+ELSE
+# This is for the first time it runs, so that newbies will not even have to select the folder themselves. God bless them.
+	IF $exportfolder = ""
+		$exportfolder = $_Install + "\poiloader"
+	ENDIF
+
+ENDIF
+
+# Lets find the location of POILoader on the users PC
+
+# What hard disk letter is GSAK running from, this *probably* will be the same for the disk POILoader is running. Of course there will always be 1 or 2....
+
+
+$diskdrive = Left($_Install, 2)
+
+IF FolderExists($poiloaderprogram)
+	IF FileExists($poiloaderprogram+"\POILoader.exe")
+		ELSE
+			PAUSE MSG="Could not detect POILoader.exe inside the folder you selected - Please reselect the proper folder on the menu."
+			$poiloaderprogram = ""
+		ENDIF
+ELSE
+	IF FileExists($diskdrive+"\Garmin\POILoader.exe")
+		IF FileExists($diskdrive+"\Program Files\Garmin\POILoader.exe")
+			Cancel MSG="Two installations of POILoader were found, one in $diskdrive\Garmin and another in $diskdrive\Program Files\Garmin. You will have to remove one and make sure the other one remaining is version 2.5.2.  This script will not run until this issue is resolved."
+		ENDIF
+		$poiloaderprogram = $diskdrive+"\Garmin"
+
+	ELSE
+
+		IF FileExists($diskdrive+"\Program Files\Garmin\POILoader.exe")
+			$poiloaderprogram = $diskdrive+"\Program Files\Garmin"
+		ELSE
+			PAUSE MSG="Could not detect POILoader.exe - Please select the folder where it is located on the menu."
+			$poiloaderprogram = ""
+		ENDIF
+	ENDIF
+ENDIF
+
+# OK how many waypoints will we be dealing with in this run?
+$total = $_Count
+
+# Future... massive speedups ahead :)
+#$db_status = DBToSQLite("Caches","Name,Code,shortDescription,longDescription,PlacedDate,CacheType,Difficulty,Terrain,OwnerID,OwnerName,Archived,Container,Latitude,Longitude,CacheID,UserNote", "C:\geocaching\poi_colorado\caches.sqlite")
+#$db_status = DBToSQLite("Waypoints","cParent,cCode,cPrefix,cName,cType,cLat,cLon,cComment,cByUser,cFlag", "C:\geocaching\poi_colorado\waypoints.sqlite")
+#$db_status = DBToSQLite("Logs","lParent,lType,lText,lBy,lDate,lLogid,lOwnerid", "C:\geocaching\poi_colorado\logs.sqlite")
+
+# Lets show the form.
+WHILE TRUE
+	$FormExit = form($Form,"")
+	BEGINCASE
+	    CASE $FormExit = "SystemExit"
+		CANCEL Msg="Macro Cancelled"
+
+	    CASE $FormExit = "start"
+		IF $exportfolder = ""
+			CANCEL Msg="You Must select a folder to export to."
+		ENDIF
+
+		#Remove any previous exported file.
+		$dbfilename = $exportfolder+"\$geofile"
+			IF FileExists($dbfilename)
+			FILEERASE File=$dbfilename
+			ENDIF
+
+		$GPSr = 19999
+
+		GOSUB Name=SaveSettings
+
+		####################
+		#
+		# This is all the other Devices Section.
+		#
+		####################
+
+		$ThisRecord = 0
+
+		# Start Watch
+		Timer Status=On
+
+		$dbfilename = "Archived"
+		GOSUB Name=InitGPXFile
+		$dbfilename = "Final Location"
+		GOSUB Name=InitGPXFile
+		$dbfilename = "Final Location (Disabled)"
+		GOSUB Name=InitGPXFile
+		$dbfilename = "Parking Area"
+		GOSUB Name=InitGPXFile
+		$dbfilename = "Question to Answer"
+		GOSUB Name=InitGPXFile
+		$dbfilename = "Stages of a Multicache"
+		GOSUB Name=InitGPXFile
+		$dbfilename = "Trailhead"
+		GOSUB Name=InitGPXFile
+		$dbfilename = "Reference Point"
+		GOSUB Name=InitGPXFile
+		$dbfilename = "Letterbox"
+		GOSUB Name=InitGPXFile
+		$dbfilename = "Letterbox (disabled)"
+		GOSUB Name=InitGPXFile
+		$dbfilename = "CITO"
+		GOSUB Name=InitGPXFile
+		$dbfilename = "CITO (disabled)"
+		GOSUB Name=InitGPXFile
+		$dbfilename = "Event"
+		GOSUB Name=InitGPXFile
+		$dbfilename = "Event (disabled)"
+		GOSUB Name=InitGPXFile
+		$dbfilename = "MegaEvent"
+		GOSUB Name=InitGPXFile
+		$dbfilename = "MegaEvent (disabled)"
+		GOSUB Name=InitGPXFile
+		$dbfilename = "Whereigo"
+		GOSUB Name=InitGPXFile
+		$dbfilename = "Whereigo (disabled)"
+		GOSUB Name=InitGPXFile
+		$dbfilename = "Multicache"
+		GOSUB Name=InitGPXFile
+		$dbfilename = "Multicache (disabled)"
+		GOSUB Name=InitGPXFile
+		$dbfilename = "Earthcache"
+		GOSUB Name=InitGPXFile
+		$dbfilename = "Earthcache (disabled)"
+		GOSUB Name=InitGPXFile
+		$dbfilename = "Traditional"
+		GOSUB Name=InitGPXFile
+		$dbfilename = "Traditional (disabled)"
+		GOSUB Name=InitGPXFile
+		$dbfilename = "Mystery"
+		GOSUB Name=InitGPXFile
+		$dbfilename = "Mystery (disabled)"
+		GOSUB Name=InitGPXFile
+		$dbfilename = "Virtual"
+		GOSUB Name=InitGPXFile
+		$dbfilename = "Virtual (disabled)"
+		GOSUB Name=InitGPXFile
+		$dbfilename = "Webcam"
+		GOSUB Name=InitGPXFile
+		$dbfilename = "Webcam (disabled)"
+		GOSUB Name=InitGPXFile
+		$dbfilename = "Found"
+		GOSUB Name=InitGPXFile
+		$dbfilename = "Found (disabled)"
+		GOSUB Name=InitGPXFile
+		$dbfilename = "Undefined"
+		GOSUB Name=InitGPXFile
+		$dbfilename = "Undefined (disabled)"
+		GOSUB Name=InitGPXFile
+		$dbfilename = "Waymark"
+		GOSUB Name=InitGPXFile
+
+		# Iterate through the whole database, start at the first cache in the grid to export to the new gpx file.
+		TABLE ACTIVE=Caches
+		GOTO Position=Top
+		WHILE NOT($_EOL)
+			$_Special =""
+			$lineOut=""
+			$combdesc=""
+			$childdesc=""
+			$logs=""
+			$longandshortdesc=""
+			$cacheinfo=""
+
+			# Remeber to update the count record.
+			$ThisRecord = $ThisRecord + 1
+
+			# Show which record we are at.
+			IF $Verbose
+				IF Frac($ThisRecord/10) = 0
+					$Msg = "Now processing: " + "$ThisRecord" + " of " + "$total caches"
+					SHOWSTATUS msg="$Msg"
+				ENDIF
+			ENDIF
+
+			$lineOut = ""
+			$PoiName = eval($waypointnamewidescreen)
+			$PoiName = Replace($_Quote,"'",$PoiName,true)
+			$PoiName = RegExReplace("&",$PoiName,"and")
+			$PoiName = RegExReplace("<",$PoiName,"&lt;")
+			$PoiName = RegExReplace(">",$PoiName,"&gt;")
+
+			$clean_name = Replace($_Quote,"'",$d_Name,true)
+			$clean_name = RegExReplace("&",$clean_name,"and")
+			$clean_name = RegExReplace("<",$clean_name,"&lt;")
+			$clean_name = RegExReplace(">",$clean_name,"&gt;")
+
+			# Deal with any child waypoints associated with this cache _FIRST_
+			TABLE ACTIVE=Waypoints scope=parent
+			GOTO Position=Top
+
+			$final_exported = false
+			WHILE NOT($_EOL)
+				IF ($d_cType = "Final Location")
+					$final_exported = true
+
+					# Treat found caches with final location very specially
+					# Insert the g_found icon at the place of final location,
+					# Ignore other child waypoints to not pollute the map.
+					IF $d_Found
+						GOSUB Name=ChildCacheDescription
+
+						$dbfilename = "Found"
+						$lineOut = "<wpt lat='$d_cLat' lon='$d_cLon'>" + $_NewLine + "<time>2008-05-01T00:00:00Z</time>" + $_NewLine + " <name>$PoiName</name>" + $_NewLine + "<cmt></cmt>" + $_NewLine + "<desc>$_special</desc>" + $_NewLine + "<sym>Information</sym>" + $_NewLine + "<extensions>" + $_NewLine + "<gpxx:WaypointExtension>" + $_NewLine + "<gpxx:DisplayMode>SymbolAndName</gpxx:DisplayMode>" + $_NewLine + "<gpxx:Address>" + $_NewLine + "<gpxx:PostalCode>$clean_name ($d_cParent)</gpxx:PostalCode>" + $_NewLine + "</gpxx:Address>" + $_NewLine + "</gpxx:WaypointExtension>" + $_NewLine + "</extensions>" + $_NewLine + "</wpt>" + $_NewLine + $_NewLine
+					ELSE
+						GOSUB Name=CacheDescription
+
+						# Switch back to the child waypoints
+						TABLE ACTIVE=Waypoints
+
+						# Export the Final Location as regular cache with hint, full listing and logs...
+						$dbfilename = "Final Location"
+						$lineOut = "<wpt lat='$d_cLat' lon='$d_cLon'>" + $_NewLine + "<time>2008-05-01T00:00:00Z</time>" + $_NewLine + " <name>$PoiName</name>" + $_NewLine + "<cmt></cmt>" + $_NewLine + "<desc>$_special</desc>" + $_NewLine + "<sym>Information</sym>" + $_NewLine + "<extensions>" + $_NewLine + "<gpxx:WaypointExtension>" + $_NewLine + "<gpxx:DisplayMode>SymbolAndName</gpxx:DisplayMode>" + $_NewLine + "<gpxx:Address>" + $_NewLine + "<gpxx:PostalCode>$plaincacheinfo</gpxx:PostalCode>" + $_NewLine + "</gpxx:Address>" + $_NewLine + "</gpxx:WaypointExtension>" + $_NewLine + "</extensions>" + $_NewLine + "</wpt>" + $_NewLine + $_NewLine
+					ENDIF
+
+					# Mark the cache final location as disabled if the parent thinks so...
+					IF $d_TempDisabled
+						$dbfilename = $dbfilename + " (disabled)"
+					ENDIF
+
+				ELSE
+					IF NOT($d_Found)
+						$clean_cname = Replace($_Quote,"'",$d_cName,true)
+						$clean_cname = RegExReplace("&",$clean_cname,"and")
+						$clean_cname = RegExReplace("<",$clean_cname,"&lt;")
+						$clean_cname = RegExReplace(">",$clean_cname,"&gt;")
+
+						GOSUB Name=ChildCacheDescription
+
+						$dbfilename = $d_cType
+						$lineOut = "<wpt lat='$d_cLat' lon='$d_cLon'>" + $_NewLine + "<time>2008-05-01T00:00:00Z</time>" + $_NewLine + " <name>$PoiName</name>" + $_NewLine + "<cmt></cmt>" + $_NewLine + "<desc>$_special</desc>" + $_NewLine + "<sym>Information</sym>" + $_NewLine + "<extensions>" + $_NewLine + "<gpxx:WaypointExtension>" + $_NewLine + "<gpxx:DisplayMode>SymbolAndName</gpxx:DisplayMode>" + $_NewLine + "<gpxx:Address>" + $_NewLine + "<gpxx:PostalCode>$clean_name ($d_cParent)</gpxx:PostalCode>" + $_NewLine + "</gpxx:Address>" + $_NewLine + "</gpxx:WaypointExtension>" + $_NewLine + "</extensions>" + $_NewLine + "</wpt>" + $_NewLine + $_NewLine
+					ENDIF
+				ENDIF
+
+				# Dump one massive line.
+				GOSUB Name=WriteGPXFile
+
+				GOTO Position=Next
+			ENDWHILE
+
+			# Back to the caches.
+			TABLE ACTIVE=Caches
+
+			# Export the cache waypoint only if the final coordinate waypoint has not been exported.
+			IF NOT($final_exported)
+
+				# Generate the Cache Description and return the big string in the 'special' variable.
+				# In case the Final Location has already been exported, we'll create the full description
+				# again - this might duplicate the data on multi/mystery caches with Final Waypoint,
+				# but what the hell, covenience is the key!
+				GOSUB Name=CacheDescription
+
+				# We're exporting the cache waypoint at the moment.
+				IF ($d_Archived)
+					# Archived caches have single icon as well.
+					$filename = "Archived"
+				ELSE
+
+					# Compose the Cache image filename from the type, optionally
+					# append the "_disabled" suffix and terminate it by the .bmp extension.
+
+					BEGINCASE
+						CASE $d_CacheType = "B"
+							$filename = "Letterbox"
+						CASE $d_CacheType = "C"
+							$filename = "CITO"
+						CASE $d_CacheType = "E"
+							$filename = "Event"
+						CASE $d_CacheType = "I"
+							$filename = "Whereigo"
+						CASE $d_CacheType = "M"
+							$filename = "Multicache"
+						CASE $d_CacheType = "R"
+							$filename = "Earthcache"
+						CASE $d_CacheType = "T"
+							$filename = "Traditional"
+						CASE $d_CacheType = "U"
+							$filename = "Mystery"
+						CASE $d_CacheType = "V"
+							$filename = "Virtual"
+						CASE $d_CacheType = "W"
+							$filename = "Webcam"
+						CASE $d_CacheType = "Z"
+							$filename = "MegaEvent"
+						CASE $d_CacheType = "Y"
+							$filename = "Waymark"
+						OTHERWISE
+							$filename = "Undefined"
+					ENDCASE
+				ENDIF
+
+				# Override previous icon decision in case the cache was already found.
+				IF ($d_Found)
+					# Treat the found caches specially and assign a simple icon for all found types.
+					$filename = "Found"
+				ENDIF
+
+				IF $d_TempDisabled
+					$filename = $filename + " (disabled)"
+				ENDIF
+
+				$dbfilename = $filename
+
+				# Generate the GPX outputline
+
+				$lineOut = "<wpt lat='$d_Latitude' lon='$d_Longitude'>" + $_NewLine + "<time>2008-05-01T00:00:00Z</time>" + $_NewLine + " <name>$PoiName</name>" + $_NewLine + "<cmt></cmt>" + $_NewLine + "<desc>$_special</desc>" + $_NewLine + "<sym>Information</sym>" + $_NewLine + "<extensions>" + $_NewLine + "<gpxx:WaypointExtension>" + $_NewLine + "<gpxx:DisplayMode>SymbolAndName</gpxx:DisplayMode>" + $_NewLine + "<gpxx:Address>" + $_NewLine + "<gpxx:PostalCode>$plaincacheinfo</gpxx:PostalCode>" + $_NewLine + "</gpxx:Address>" + $_NewLine + "</gpxx:WaypointExtension>" + $_NewLine + "</extensions>" + $_NewLine + "</wpt>" + $_NewLine + $_NewLine
+
+				# Dump one massive line.
+				GOSUB Name=WriteGPXFile
+			ENDIF # not($final_exported)
+
+
+			GOTO Position=Next
+		ENDWHILE
+
+		IF $Verbose
+			$Msg = "Now processing: " + "$ThisRecord" + " of " + "$total points"
+			SHOWSTATUS msg="$Msg"
+		ENDIF
+
+		$dbfilename = "Archived"
+		GOSUB Name=ShutdownAndConvertGPXFile
+		$dbfilename = "Final Location"
+		GOSUB Name=ShutdownAndConvertGPXFile
+		$dbfilename = "Final Location (Disabled)"
+		GOSUB Name=ShutdownAndConvertGPXFile
+		$dbfilename = "Parking Area"
+		GOSUB Name=ShutdownAndConvertGPXFile
+		$dbfilename = "Question to Answer"
+		GOSUB Name=ShutdownAndConvertGPXFile
+		$dbfilename = "Stages of a Multicache"
+		GOSUB Name=ShutdownAndConvertGPXFile
+		$dbfilename = "Trailhead"
+		GOSUB Name=ShutdownAndConvertGPXFile
+		$dbfilename = "Reference Point"
+		GOSUB Name=ShutdownAndConvertGPXFile
+		$dbfilename = "Letterbox"
+		GOSUB Name=ShutdownAndConvertGPXFile
+		$dbfilename = "Letterbox (disabled)"
+		GOSUB Name=ShutdownAndConvertGPXFile
+		$dbfilename = "CITO"
+		GOSUB Name=ShutdownAndConvertGPXFile
+		$dbfilename = "CITO (disabled)"
+		GOSUB Name=ShutdownAndConvertGPXFile
+		$dbfilename = "Event"
+		GOSUB Name=ShutdownAndConvertGPXFile
+		$dbfilename = "Event (disabled)"
+		GOSUB Name=ShutdownAndConvertGPXFile
+		$dbfilename = "MegaEvent"
+		GOSUB Name=ShutdownAndConvertGPXFile
+		$dbfilename = "MegaEvent (disabled)"
+		GOSUB Name=ShutdownAndConvertGPXFile
+		$dbfilename = "Whereigo"
+		GOSUB Name=ShutdownAndConvertGPXFile
+		$dbfilename = "Whereigo (disabled)"
+		GOSUB Name=ShutdownAndConvertGPXFile
+		$dbfilename = "Multicache"
+		GOSUB Name=ShutdownAndConvertGPXFile
+		$dbfilename = "Multicache (disabled)"
+		GOSUB Name=ShutdownAndConvertGPXFile
+		$dbfilename = "Earthcache"
+		GOSUB Name=ShutdownAndConvertGPXFile
+		$dbfilename = "Earthcache (disabled)"
+		GOSUB Name=ShutdownAndConvertGPXFile
+		$dbfilename = "Traditional"
+		GOSUB Name=ShutdownAndConvertGPXFile
+		$dbfilename = "Traditional (disabled)"
+		GOSUB Name=ShutdownAndConvertGPXFile
+		$dbfilename = "Mystery"
+		GOSUB Name=ShutdownAndConvertGPXFile
+		$dbfilename = "Mystery (disabled)"
+		GOSUB Name=ShutdownAndConvertGPXFile
+		$dbfilename = "Virtual"
+		GOSUB Name=ShutdownAndConvertGPXFile
+		$dbfilename = "Virtual (disabled)"
+		GOSUB Name=ShutdownAndConvertGPXFile
+		$dbfilename = "Webcam"
+		GOSUB Name=ShutdownAndConvertGPXFile
+		$dbfilename = "Webcam (disabled)"
+		GOSUB Name=ShutdownAndConvertGPXFile
+		$dbfilename = "Found"
+		GOSUB Name=ShutdownAndConvertGPXFile
+		$dbfilename = "Found (disabled)"
+		GOSUB Name=ShutdownAndConvertGPXFile
+		$dbfilename = "Undefined"
+		GOSUB Name=ShutdownAndConvertGPXFile
+		$dbfilename = "Undefined (disabled)"
+		GOSUB Name=ShutdownAndConvertGPXFile
+		$dbfilename = "Waymark"
+		GOSUB Name=ShutdownAndConvertGPXFile
+
+
+		# Stop Watch
+		Timer Status=Off Msg=No
+		$stopwatch_minutes = Round($_Timer / 60, 0)
+		$stopwatch_seconds = Round(Frac($_Timer / 60) * 60, 0)
+
+		# POI Loader
+		$poiloaderprogram = $poiloaderprogram+"\POILoader.exe"
+		RUNPGM pgm="$poiloaderprogram" Wait=No Hide=yes
+
+		CANCEL Msg="Export completed to: $exportfolder in $stopwatch_minutes:$stopwatch_seconds minutes.  POILoader has been started for you (it's minimised in your taskbar) to upload your caches to the Device."
+
+
+	    CASE $FormExit = "cancel"
+		CANCEL Msg="Macro Cancelled"
+	ENDCASE
+ENDWHILE
+
+####################
+#
+# SubRoutines!
+#
+####################
+
+# This is the subroutine that writes to the GPX file.
+BEGINSUB name=WriteGPXFile
+	$error = AppendFile("$exportfolder\$dbfilename.gpx", $lineOut)
+ENDSUB
+
+BEGINSUB name=InitGPXFile
+	# This is the text that needs to be at the start of the gpx v1.1 file. It stops before the data from the caches is inserted.
+	$error = PutFile("$exportfolder\$dbfilename.gpx", "<?xml version='1.0' encoding='Windows-1250' standalone='no' ?>" + $_NewLine + " <gpx xmlns='http://www.topografix.com/GPX/1/1' xmlns:gpxx = 'http://www.garmin.com/xmlschemas/GpxExtensions/v3' creator='Shebi UberExport v$version_macro' version='1.1' xmlns:xsi = 'http://www.w3.org/2001/XMLSchema-instance' xsi:schemaLocation='http://www.topografix.com/GPX/1/1 http://www.topografix.com/GPX/1/1/gpx.xsd http://www.garmin.com/xmlschemas/GpxExtensions/v3 http://www8.garmin.com/xmlschemas/GpxExtensions/v3/GpxExtensionsv3.xsd'>" + $_NewLine + "   <metadata>" + $_NewLine + "        <desc>UberExport GPX output for Colorado/Oregon</desc>" + $_NewLine + "<link href='http://www.shebi.cz'>" + $_NewLine + "        </link>" + $_NewLine + "        <time>2008-05-01T00:00:00Z</time>" + $_NewLine + "         <bounds maxlat='53.000000' maxlon='-6.0000' minlat='53.000000' minlon='-6.000000'/>" + $_NewLine + "</metadata>" + $_NewLine + $_NewLine)
+ENDSUB
+
+BEGINSUB name=ShutdownAndConvertGPXFile
+	$error = AppendFile("$exportfolder\$dbfilename.gpx", "</gpx>")
+
+# Don't use the GPSbabel to convert the caches. It is not capable enough to process
+# the long descriptions.
+#	GOSUB Name=ConvertGPXFile
+ENDSUB
+
+# I'd like to use GPSBabel for conversion, but it seems that its code is not uptodate enough to be able
+# to process the POIs the same as the POILoader can do.
+BEGINSUB name=ConvertGPXFile
+	$gpx_source = Quote("$exportfolder\$dbfilename.gpx")
+	$gpi_target = Quote("$exportfolder\$dbfilename.gpi")
+	$imagefilename = Quote("$exportfolder\$dbfilename.bmp")
+
+	IF FileExists($gpx_source)
+		$babel_params = "-i gpx -f " + $gpx_source + " -o garmin_gpi,bitmap=" + $imagefilename + ",category=poi -F " + $gpi_target
+
+		RUNPGM pgm=$babelprogram Wait=Yes Parms=$babel_params
+
+		#FILEERASE File=$gpx_source
+
+	ENDIF
+ENDSUB
+
+
+# This is basically my old script condensed into a subroutine to output the data we need into the $_Special tag.
+BEGINSUB name=CacheDescription
+
+	$_special = ""
+	$hints = ""
+	$combdesc = ""
+
+	# POILOADER is VERY VERY fussy about any ampersands in any of the fields if they do not belong to a "html tag" like &lt; or &amp; etc etc.
+	# If you have a normal ampersand ANYWHERE in any field, POILoader will not accept the file as valid data.
+	# All these extra RegExReplaces try to fix this.
+	# The same is true for any brackets like > or <. We deal with these later.
+
+	$clean_owner_name = $d_OwnerName
+	$clean_owner_name = RegExReplace("&",$clean_owner_name,"and")
+	$clean_owner_name = RegExReplace("<",$clean_owner_name,"&lt;")
+	$clean_owner_name = RegExReplace(">",$clean_owner_name,"&gt;")
+
+	# Stupid POILoader and ampersands. ....
+	$hints = RegExReplace("&",$d_hints,"and")
+	$hints = "<font color=#008000>****&lt;br&gt;Hint: " + $hints +"&lt;br&gt;****</font>&lt;br&gt;&lt;br&gt;"
+
+	# remove characters that may "upset" the device in the hints, also deal with any html brackets at this stage that need to be converted to the safe html mode.
+
+	$hints = Replace($_Quote,"'",$hints,true)
+	$hints = RegExReplace("$_NewLine",$hints," ")
+	$hints = Replace(","," ",$hints,true)
+	$hints = RegExReplace("<",$hints,"&lt;")
+	$hints = RegExReplace(">",$hints,"&gt;")
+
+	IF $final_exported
+		$coords = "%c_Lat=M, %c_Lon=M"
+	ELSE
+		$coords = "%lat=M, %lon=M"
+	ENDIF
+
+	# Lets set up the nice color cache information section
+	$cacheinfo = "<font color=red>" + $clean_name + " by " + $clean_owner_name + " (" + $d_Code + "),</font>&lt;br&gt;<font color=#008000>%typ=3/%con=3/%last4/Tb:%bug, (D:%Dif/T:%Ter)</font>&lt;br&gt;<font color=blue>Pl:%datepl, LF:%datelf</font>&lt;br&gt;<font color=red>" + $coords + "</font>&lt;br&gt;&lt;br&gt;"
+
+	# For the newer Devices this variable is for the page you see BEFORE you press the more button to see the whole description. At the moment I can't see to get any newline method to work.
+	$plaincacheinfo =  $clean_name + " by " + $clean_owner_name  + " (" + $d_Code + ")" + $_NewLine + $coords + $_NewLine + "%typ=3/%con=3/%last4/Tb:%bug, (D:%Dif/T:%Ter)" + $_NewLine + "," + $_NewLine + "Pl:%datepl, LF:%datelf"
+	$plaincacheinfo = RegExReplace("<|>|&",$plaincacheinfo," ")
+
+	# This should be configurable in the future, but at the moment, don't include
+	# the long description for already found caches.
+	IF ($d_Found)
+		$longandshortdesc = $d_shortDescription
+	ELSE
+		$longandshortdesc = $d_shortDescription + $d_LongDescription
+	ENDIF
+
+	IF ($d_HasUserNote)
+		$usernote = "<font color=red>Usernote ("+ DateFormat($d_ldate) + "):</font>&lt;br&gt;&lt;br&gt;" + $d_UserNote + "&lt;br&gt;&lt;br&gt;"
+	ELSE
+		$usernote = ""
+	ENDIF
+
+	# now output the logs
+	TABLE Active=Logs scope=parent
+	$lcount = 0
+	WHILE NOT($_eol)
+		$lcount = $lcount + 1
+
+		# Stupid POILoader and ampersands. ....
+		$clean_log_by = RegExReplace("&",$d_lby,"and")
+		$clean_log_text = RegExReplace("&",$d_ltext,"and")
+
+		$logs = $logs + "<font color=blue>" + $d_ltype + " by " + $clean_log_by + " " + DateFormat($d_ldate) + "</font> - " + $clean_log_text + "&lt;br&gt;&lt;br&gt;"
+		# only output a max of 10 logs
+		IF $lcount = $maxlogs
+			BREAK
+		ENDIF
+		GOTO position=next
+	ENDWHILE
+	TABLE Active=Caches
+
+	# remove characters that may "upset" the device in the Logs also deal with any html brackets at this stage that need to be converted to the safe html mode.
+
+	$logs = Replace($_Quote,"'",$logs,true)
+	$logs = Replace(","," ",$logs,true)
+	$logs = RegExReplace("$_NewLine",$logs,"&lt;br&gt;")
+	$logs = RegExReplace("<",$logs,"&lt;")
+	$logs = RegExReplace(">",$logs,"&gt;")
+
+
+	# remove characters that may "upset" the device in the Long and short Description (the combined description comes later)
+
+	$longandshortdesc = Replace($_Quote,"'",$longandshortdesc,true)
+	$longandshortdesc = Replace(","," ",$longandshortdesc,true)
+	$longandshortdesc = RegExReplace("$_NewLine",$longandshortdesc," ")
+	$longandshortdesc = RegExReplace("&nbsp;",$longandshortdesc," ")
+	$longandshortdesc = RegExReplace("&",$longandshortdesc,"and")
+
+	# We want to keep the formatting, to look nice, so the best way is to replace <p> and <br> so it doesn't get stripped later...
+	$longandshortdesc = RegExReplace("< *(br|BR)[ a-zA-Z0-9-!/={}\[\];'#/.,]*>",$longandshortdesc,"&lt;br&gt;")
+	$longandshortdesc = RegExReplace("< *(p|P)[ a-zA-Z0-9-!/={}\[\];'#/.,]*>",$longandshortdesc,"&lt;br&gt;&lt;br&gt;")
+
+	# This removes all the HTML code/tags, but ignores the breaks from above - includes code to get rid of comment html which crashed the 7xx series.
+	$longandshortdesc = RegExReplace("</?[ a-zA-Z][a-zA-Z0-9\-!]*[^<>]*>|</? ?[\!][a-zA-Z0-9\-\ ]*|-*>",$longandshortdesc," ")
+
+	# This removes unnecessary white space including multiple spaces before/after/throughout each line, I'm sure there is a slicker way.....
+	$longandshortdesc = RegExReplace("[ \t]+",$longandshortdesc," ")
+	$longandshortdesc = RegExReplace("\ +(\r\n)+\ *",$longandshortdesc,"<br>")
+	$longandshortdesc = RegExReplace(" {2,}",$longandshortdesc," ")
+
+	# This finally sets the entire description field to be used.
+	$combdesc = $cacheinfo + $hints + $usernote + $longandshortdesc + "<br><br>"
+
+	$combdesc = RegExReplace("<",$combdesc,"&lt;")
+	$combdesc = RegExReplace(">",$combdesc,"&gt;")
+
+	$_special = $combdesc
+
+	# Device contact section only supports a certain number of characters depending on your model. The macro will provide a buffer for html formatting etc.
+	$HintLen = Len($hints)
+	$LogsLen = Len($logs)
+
+	# If the description and hint is too large, chop the end of the description off just enough to add the hint.
+	# NEW ADDITION - There were some cases when chopping off the end of the desc just enough to leave room for the hint would cut a "safe html" code like
+	# &lt; or &gt; in half leaving &l or &g etc etc. Now we had a problem of there being a rouge ampersand in the xml code and POILoader would
+	# throw a fit. This new proceedure, takes the last 7 characters before the cut, and cleans them up before adding them back to the desc.
+	IF len($combdesc) > $GPSr
+		$_special = left($_special, $GPSr - 10)
+		$snippedtagshort = right($_special, 7)
+		$snippedtagshort = RegExReplace("&",$snippedtagshort,"")
+		$snippedtagLen = Len($_special)
+		$_special = left($_special, ($snippedtagLen - 7))
+		$_special =  $_special + $snippedtagshort + "&lt;br&gt;&lt;br&gt;**DESCRIPTION CUT**&lt;br&gt;&lt;br&gt;"
+	ELSE
+		# Order here is Desc then logs then hint.
+		# If the description and hint AND logs is too large, chop the end of the logs off just exactly enough to make it the maximum characters available.
+		IF len($combdesc) + $LogsLen > $GPSr
+			$_special = $combdesc + $logs
+			$_special = left($_special, $GPSr)
+			$snippedtagshort = right($_special, 7)
+			$snippedtagshort = RegExReplace("&",$snippedtagshort,"")
+			$snippedtagLen = Len($_special)
+			$_special = left($_special, ($snippedtagLen - 7))
+			$_special =  $_special + $snippedtagshort
+		ELSE
+			# All is well, you can see everything, no chopping for you!!
+			$_special = $combdesc + $logs
+		ENDIf
+	  ENDIF
+ENDSUB
+
+
+BEGINSUB name=ChildCacheDescription
+
+	$clean_comment = $d_cComment
+	$clean_comment = RegExReplace("&nbsp;",$clean_comment," ")
+	$clean_comment = RegExReplace("$_NewLine",$clean_comment,"<br>")
+	$clean_comment = RegExReplace("< *(br|BR)[ a-zA-Z0-9-!/={}\[\];'#/.,]*>",$clean_comment,"<br>")
+	$clean_comment = RegExReplace("< *(p|P)[ a-zA-Z0-9-!/={}\[\];'#/.,]*>",$clean_comment,"<br><br>")
+	$clean_comment = RegExReplace("</?[ a-zA-Z][a-zA-Z0-9\-!]*[^<>]*>|</? ?[\!][a-zA-Z0-9\-\ ]*|-*>",$clean_comment," ")
+
+	$childdesc = "<font color=blue>$d_Name ($d_cParent) - $d_cName</font><br><font color=red>%c_Lat=M, %c_Lon=M</font><br>" + $d_cType + "<br>" + $clean_comment
+
+	# remove characters that may "upset" the device in the hints, also deal with any html brackets at this stage that need to be converted to the safe html mode.
+	$childdesc = Replace($_Quote,"'",$childdesc,true)
+	$childdesc = RegExReplace("$_NewLine",$childdesc," ")
+	$childdesc = RegExReplace("&",$childdesc,"and")
+	$childdesc = Replace(","," ",$childdesc,true)
+	$childdesc = RegExReplace("<",$childdesc,"&lt;")
+	$childdesc = RegExReplace(">",$childdesc,"&gt;")
+
+
+	$_special = $childdesc
+ENDSUB
+
+BEGINSUB Name=SaveSettings
+    $Settings=$exportfolder + ";" + $devicemodel + ";" + $soundfile + ";" + $switchhintandlogs + ";" + $version_macro + ";" + $poiloaderprogram + ";"
+    $PutFile=PutFile($SettingsFile,$Settings)
+    IF Left($PutFile,7) = "*Error*"
+        PAUSE Msg="$Data"
+        CANCEL
+    ENDIF
+ENDSUB
+
+BEGINSUB Name=Declare
+Option Explicit=Yes
+
+  Declare Var=$total Type=Numeric
+  Declare Var=$ThisRecord Type=Numeric
+  Declare Var=$HintLen Type=Numeric
+  Declare Var=$LogsLen Type=Numeric
+  Declare Var=$maxlogs Type=Numeric
+  Declare Var=$snippedtagLen Type=Numeric
+  Declare Var=$GPSr Type=Numeric
+  Declare Var=$lcount Type=Numeric
+  Declare Var=$stopwatch_minutes Type=Numeric
+  Declare Var=$stopwatch_seconds Type=Numeric
+
+  Declare Var=$Verbose Type=Boolean
+  Declare Var=$final_exported Type=Boolean
+
+  Declare Var=$coords Type=string
+  Declare Var=$db_status Type=string
+  Declare Var=$clean_name Type=string
+  Declare Var=$clean_cname Type=string
+  Declare Var=$clean_owner_name Type=string
+  Declare Var=$clean_comment Type=string
+  Declare Var=$clean_log_by Type=string
+  Declare Var=$clean_log_text Type=string
+  Declare Var=$filename Type=string
+  Declare Var=$imagefilename Type=string
+  Declare Var=$dbfilename Type=String
+  Declare Var=$waypointnamewidescreen Type=string
+  Declare Var=$switchhintandlogs Type=string
+  Declare Var=$version_macro Type=String
+  Declare Var=$version_macro_file Type=String
+  Declare Var=$SettingsFile Type=String
+  Declare Var=$geofile Type=String
+  Declare Var=$exportfoldertemp Type=String
+  Declare Var=$devicemodel Type=String
+  Declare Var=$diskdrive Type=String
+  Declare Var=$soundfile Type=String
+  Declare Var=$exportfolder Type=String
+  Declare Var=$FormExit Type=String
+  Declare Var=$lineOut Type=String
+  Declare Var=$PoiName Type=String
+  Declare Var=$FormExit Type=String
+  Declare Var=$error Type=String
+  Declare Var=$cacheinfo Type=String
+  Declare Var=$plaincacheinfo Type=String
+  Declare Var=$hints Type=String
+  Declare Var=$longandshortdesc Type=String
+  Declare Var=$usernote Type=String
+  Declare Var=$logs Type=String
+  Declare Var=$hints Type=String
+  Declare Var=$combdesc Type=String
+  Declare Var=$snippedtagshort Type=String
+  Declare Var=$childdesc Type=String
+  Declare Var=$Settings Type=String
+  Declare Var=$PutFile Type=String
+  Declare Var=$_special Type=String
+  Declare Var=$form Type=String
+  Declare Var=$Msg Type=String
+  Declare Var=$poiloaderprogram Type=String
+  Declare Var=$babelprogram Type=String
+  Declare Var=$gpx_source Type=String
+  Declare Var=$gpi_target Type=String
+  Declare Var=$babel_params Type=String
+
+EndSub
+
+####################
+#
+# Script Form!
+#
+####################
+
+<Data> VarName=$form
+#********************************************************************
+# Form generated by GSAK form designer on Thu 05-Jun-2008 11:38:20
+#********************************************************************
+
+Name = Form1
+  Type = Form
+  Height = 437
+  Width = 513
+
+Name = exportfolder
+  Type = Folder
+  Height = 21
+  Left = 74
+  Top = 160
+  Width = 383
+  Taborder = 8
+
+Name = devicemodeltext
+  Type = Label
+  Color = 128
+  Height = 24
+  Left = 74
+  Size = 14
+  Style = bold
+  Top = 80
+  Width = 139
+  Caption = My Device Model
+
+Name = exportfoldertext
+  Type = Label
+  Color = 128
+  Enabled = Yes
+  Font = @Arial Unicode MS
+  Height = 27
+  Left = 74
+  Size = 14
+  Style = bold
+  Top = 130
+  Visible = Yes
+  Width = 231
+  Caption = Folder to export GPX file to
+
+Name = start
+  Type = Button
+  Height = 25
+  Left = 104
+  Top = 360
+  Width = 145
+  Taborder = 9
+  Caption = Start
+
+Name = devicemodel
+  Type = Combobox
+  Height = 21
+  Left = 392
+  Top = 80
+  Values = Colorado;Oregon
+  Width = 65
+  Taborder = 10
+
+Name = cancel
+  Type = Button
+  Height = 25
+  Left = 263
+  Top = 360
+  Width = 75
+  Taborder = 11
+  Caption = Cancel
+
+Name = Label1
+  Type = Label
+  Color = 16711680
+  Font = @Kozuka Gothic Pro L
+  Height = 32
+  Left = 8
+  Size = 18
+  Style = bold
+  Top = 8
+  Width = 475
+  Caption = Easier Geocaching for Garmin Devices
+
+Name = Label2
+  Type = Label
+  Color = 0
+  Height = 13
+  Left = 376
+  Top = 368
+  Width = 93
+  Caption = Petr.von.Shebi
+
+Name = soundfile
+  Type = Combobox
+  Height = 21
+  Left = 392
+  Top = 280
+  Values = Yes;No
+  Width = 65
+  Taborder = 12
+
+Name = soundfilelabel
+  Type = Label
+  Color = 128
+  Font = Arial
+  Height = 17
+  Left = 75
+  Size = 11
+  Top = 280
+  Width = 312
+  Caption = Will you be using the alert feature in POILoader?
+
+Name = switchhintandlogs
+  Type = Combobox
+  Height = 21
+  Left = 368
+  Top = 312
+  Values = Before Logs;Very End
+  Width = 89
+  Taborder = 13
+
+Name = Label3
+  Type = Label
+  Color = 4210816
+  Font = Arial
+  Height = 17
+  Left = 74
+  Size = 11
+  Top = 312
+  Width = 252
+  Caption = Place hints at very end, or before logs?
+
+Name = Label4
+  Type = Label
+  Color = 128
+  Font = @Arial Unicode MS
+  Height = 27
+  Left = 74
+  Size = 14
+  Style = bold
+  Top = 200
+  Width = 350
+  Caption = Folder where POILoader v2.5.2 is located
+
+Name = poiloaderprogram
+  Type = Folder
+  Height = 21
+  Left = 74
+  Top = 224
+  Width = 383
+  Taborder = 14
+
+<enddata>
